@@ -97,9 +97,9 @@ class LPSolverTwoPhase:
         # Фаза I: max -sum(a)
         z = np.zeros(total + 1)
         for r, bc in enumerate(basis):
-            if bc >= abase:           # базисная искусств. переменная
+            if bc >= abase:
                 z -= T[r, :]
-        for j in range(abase, abase + num_a):  # небазисные a_j
+        for j in range(abase, abase + num_a):
             if j not in basis:
                 z[j] = -1.0
         T[-1, :] = z
@@ -150,11 +150,22 @@ class LPSolverTwoPhase:
         s2, Top, bopt = self._simplex(T2, basis1)
         if s2 != 'optimal': return {'status': f'Phase II failed: {s2}'}
 
-        x = np.zeros(tot2)
-        for r, bc in enumerate(bopt): x[bc] = Top[r, -1]
-        x = x[:n]; obj = Top[-1, -1]
+        # Извлечём решение
+        xall = np.zeros(tot2)
+        for r, bc in enumerate(bopt): xall[bc] = Top[r, -1]
+        x_orig = xall[:n]
+        obj = Top[-1, -1]
         if sense == 'min': obj = -obj
-        return {'status': 'optimal', 'x': x, 'objective': obj}
+
+        # --- ENFORCE x >= 0 (simple check & cleanup) ---
+        tol = 1e-9
+        if np.any(x_orig < -tol):
+            # если уходит ниже 0 значительно — сообщаем
+            return {'status': 'violates_nonnegativity', 'x': x_orig}
+        # отрезаем микронегативы из-за численной погрешности
+        x_orig = np.where(x_orig < 0, 0.0, x_orig)
+
+        return {'status': 'optimal', 'x': x_orig, 'objective': obj}
 
 def main():
     if len(sys.argv) < 2:
@@ -165,12 +176,12 @@ def main():
     solver = LPSolverTwoPhase()
     sense, c, A, signs, b = solver.parse_lp_text(txt)
     res = solver.solve(sense, c, A, signs, b)
-    # Красиво печатаем
     if res.get('status') == 'optimal':
         x = res['x']; obj = res['objective']
         print("status: optimal")
         print("x*:", " ".join(f"{v:.6g}" for v in x))
         print("objective:", f"{obj:.6g}")
+        print("nonnegativity check: passed (x >= 0)")
     else:
         print(res)
 
